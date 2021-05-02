@@ -30,14 +30,14 @@ app.get('/', (req, res) => {
 
 // ! Catch 404 not found
 app.all("*", (req, res, next) => {
-  next(new ExpressError("Page Not Found", 404));
+  res.status(404).json({err: "Invalid Path"})
 });
 
 // ! Error handler
 app.use((err, req, res, next) => {
-  const { statusCode = 500 } = err;
+  const status = err.statusCode || err?.response?.status || 500
   if (!err.message) err.message = "Something Went Wrong";
-  res.status(statusCode).json({ err });
+  res.status(status).json({ err });
 });
 
 // * Listen to port

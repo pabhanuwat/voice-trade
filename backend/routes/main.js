@@ -1,30 +1,49 @@
 const express = require('express')
 const router = express.Router();
 const axios = require('axios')
+const catchAsync = require('../catchAsync')
+const {price, priceChange, priceChangeSymbol, graph} = require('../controllers/main')
+const defaultParams = {
+    params: {
+        symbol: process.env.DEFAULT_SYMBOL
+    }
+}
+
+
+router.get('/price/:symbol?', price)
+
+router.get('/diff/:symbol', priceChangeSymbol)
+
+router.get('/diff-:option/:number?', priceChange)
+
+router.get('/graph/:symbol/:interval?', graph)
 
 router.get('/info',async (req, res) => {
     const {data} = await axios.get(process.env.INFO)
-    res.json(data)
+    // res.json(data)
+    res.json(["data",1,2,34])
 })
 
 router.get('/depth',async (req, res) => {
-    const {data} = await axios.get(process.env.ORDER_BOOK + "?symbol=" + process.env.DEFAULT_SYMBOL)        // todo limit parameter
+    const {data} = await axios.get(process.env.ORDER_BOOK, defaultParams)        // todo limit parameter
     res.json(data)
 })
 
 router.get('/trades',async (req, res) => {
-    const {data} = await axios.get(process.env.TRADE + "?symbol=" + process.env.DEFAULT_SYMBOL)             // todo limit parameter
+    const {data} = await axios.get(process.env.TRADE, defaultParams)             // todo limit parameter
     res.json(data)
 })
 
 router.get('/agg-trades',async (req, res) => {
-    const {data} = await axios.get(process.env.AGG_TRADE + "?symbol=" + process.env.DEFAULT_SYMBOL)             // todo limit parameter
+    const {data} = await axios.get(process.env.AGG_TRADE, defaultParams)             // todo limit parameter
     res.json(data)
 })
 
-router.get('/candle',async (req, res) => {
-    const {data} = await axios.get(process.env.CANDLE + "?symbol=" + process.env.DEFAULT_SYMBOL + "&interval=1d" )             // todo limit parameter
-    res.json(data)
-})
+// router.get('/price',async (req, res) => {
+//     const {data} = await axios.get(process.env.PRICE)             // todo limit parameter
+//     res.json(data)
+// })
+
+
 
 module.exports = router;
