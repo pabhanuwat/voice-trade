@@ -22,7 +22,7 @@ router.get('/graph/:symbol/:interval?', graph)
 router.get('/base/:symbol', changeBase)
 
 router.get('/account', account)
-S
+
 router.get('/info',async (req, res) => {
     const {data} = await axios.get(process.env.INFO)
     res.json(data)
