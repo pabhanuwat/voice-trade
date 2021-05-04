@@ -1,8 +1,11 @@
 const catchAsync = require('../catchAsync')
 const axios = require('axios')
+axios.defaults.headers.common["X-CMC_PRO_API_KEY"] = process.env.CMC_API_KEY
+axios.defaults.headers.common["X-MBX-APIKEY"] = process.env.API_KEY
 const CryptoJS = require('crypto-js')
 const fs = require("fs");
 const os = require("os");
+const mapping = require('../idMap.json')
 
 async function convertCurrency(inCurrency, outCurrency) { // inCurrency -> outCurreny 
     /**
@@ -21,144 +24,75 @@ async function convertCurrency(inCurrency, outCurrency) { // inCurrency -> outCu
 
 module.exports.price = async ({ params }, res) => {
     // * for THB USD USDT
-    if (['THB', 'USD', 'USDT'].includes(params?.symbol)) {
-        params.symbols = params.symbol
-        // params.base = params.symbol === 'THB' ? 'USD' : 'THB'
-        params.access_key = process.env.EXCHANGE_API_KEY
-        const { data: data1 } = await axios.get(process.env.EXCHANGE, { params }) // 1 EUR -> ?? symbol
-        const { data: data2 } = await axios.get(process.env.PRICE, { params: { symbol: "EURUSDT" } }) // 1 EUR -> ?? USDT
-        let one_euro_in_symbol = data1.rates[params.symbol]
-        let one_symbol_in_euro = 1 / one_euro_in_symbol
-        let output = data2.price * one_symbol_in_euro // THB in USDT
-        // console.log(await convertCurrency("USD", "THB"))
-        switch (params.symbol) { // Bam says USD = USDT
-            case 'THB': // to THB
-                if (process.env.SYMBOL == 'USD') {
-                    // USD -> EUR
-                    // EUR -> THB
-                    return res.json({
-                        price: 
-                    })
-                } else if (process.env.SYMBOL == 'USDT') {
-
-                }
-
-    
-
-                break
-            case 'USD':
-                if (process.env.SYMBOL == 'THB') {
-
-                } else if (process.env.SYMBOL == 'USDT') {
-
-                }
-                break
-            case 'USDT':
-                if (process.env.SYMBOL == 'USD') {
-
-                } else if (process.env.SYMBOL == 'THB') {
-
-                }
-                break
+    if (['THB', 'USD'].includes(params?.symbol)) {
+        if (process.env.SYMBOL !== 'USDT') {
+            const {data} = await axios.get(process.env.PAIR + `/${params.symbol}/${process.env.SYMBOL}`)
+            return res.json({price: data.conversion_rate})
         }
-        return res.json(data1)
+        else {
+            let {data: {data}} = await axios.get(process.env.CMC_QUOTES, {params: {convert_id: process.env[params.symbol], id: process.env.USDT}} )
+            data = (({[process.env.USDT]:{quote:{[process.env[params.symbol]] : {price}}}}) => ({price: 1/price}))(data);
+            res.json(data)
+        }
     }
 
-    // ตอนนี้นะ ข้อ 5 ราคา ไทยบาท | usd | usdt
-    // base ไทยบาท | usd | usdt
-    // process.env.SYMBOL
-    // switch (process.env.SYMBOL){
-    //     case 'THB':
-    //         asdfkljka
-    //     case 'US'
-    // }
-    // ถามราคา ไทยบาท โดย base = usd
-    // ถามราคา ไทยบาท โดย base = usdt
-
-    // ถามราคา usd โดย base = ไทยบาท
-    // ถามราคา usd โดย base = usdt
-
-    // ถามราคา usdt โดย base = ไทยบาท
-    // ถามราคา usdt โดย base = usd
-    // * for crypto symbol
-    if (params.symbol) params.symbol = params.symbol + process.env.SYMBOL
-    const { data } = await axios.get(process.env.PRICE, { params })
+    params = {...params, convert_id: process.env.SYMBOL_ID, id: mapping[params.symbol]?.id}
+    const path = params.id ? process.env.CMC_QUOTES : process.env.CMC_LISTINGS
+    params.symbol && delete params.symbol
+    let {data: {data}} = await axios.get(path, {params} )
+    // * Prune the data
+    data.length ? data = data.map(({name,symbol,quote:{[process.env.SYMBOL_ID] : {price}}}) => ({name,symbol,price}))
+                : data = (({[params.id]:{name,symbol,quote:{[process.env.SYMBOL_ID] : {price}}}}) => ({name,symbol,price}))(data);
     return res.json(data)
 }
 
 module.exports.priceChangeSymbol = catchAsync(async ({ params }, res) => {
-    const { data: { symbol, priceChange, priceChangePercent, lastPrice } } = await axios.get(process.env.PRICE_CHANGE, { params })
-    return res.json({ symbol, priceChange, priceChangePercent, lastPrice })
+    // const { data: { symbol, priceChange, priceChangePercent, lastPrice } } = await axios.get(process.env.PRICE_CHANGE, { params })
+    // return res.json({ symbol, priceChange, priceChangePercent, lastPrice })
+    params = {  
+        id: mapping[params.symbol].id,
+        convert_id: process.env.SYMBOL_ID,
+    }
+    let {data: {data}} = await axios.get(process.env.CMC_QUOTES, {params} )
+    data = (({[params.id]:{name,symbol,quote:{[process.env.SYMBOL_ID] : {price,percent_change_24h:percentChange}}}}) => ({name,symbol,price,percentChange}))(data)
+    return res.json(data)
 })
 
 module.exports.priceChange = catchAsync(async ({ params: { option, number } }, res, next) => {
     // ! Invalid path
     if (!['up', 'down'].includes(option)) return next()
-
-    // * (0) Fetch the data
-    let { data } = await axios.get(process.env.PRICE_CHANGE)
-
-    // * (1) Prune the data
-    data = data.map(({ symbol, priceChange, priceChangePercent, lastPrice, ...other }) => ({ symbol, priceChange, priceChangePercent, lastPrice }))
-
-    // * (2) Sort the data based on parameter
-    let descending = option === "up" ? 1 : -1
-    data.sort((a, b) => (+b.priceChangePercent - +a.priceChangePercent) * descending)
-
-    // * (3) Return the data based on number
-    if (number) res.json(data.slice(0, number))
-    else res.json(data[0])
+    let params = {  
+        convert_id: process.env.SYMBOL_ID,
+        sort: "percent_change_24h",
+        sort_dir: option === 'up' ? 'desc' : 'asc',
+    }
+    let {data: {data}} = await axios.get(process.env.CMC_LISTINGS, {params} )
+    data = data.map(({name,symbol,quote:{[process.env.SYMBOL_ID] : {price,percent_change_24h:percentChange}}}) => ({name,symbol,price,percentChange}))
+    if (number) return res.json(data.slice(0, number))
+    else return res.json(data[0])
 })
 
 module.exports.graph = catchAsync(async ({ params }, res) => {
     params.interval = params.interval || process.env.DEFAULT_INTERVAL
+    params.symbol = params.symbol + "USDT"
     const { data } = await axios.get(process.env.CANDLE, { params })
     res.json(data)
 })
 
-module.exports.account = catchAsync(async (req, res) => {
-    // * (1) Create timestamp
+module.exports.signedEndpoint = async (req, res) => {
     const now = (new Date()).valueOf()
-    // * (2) Create params
-    const params = { timestamp: now }
-    // * (3) Create signature
     const hash = CryptoJS.HmacSHA256(`timestamp=${now}`, process.env.API_SECRET)
     const signature = CryptoJS.enc.Hex.stringify(hash);
-    params.signature = signature
-    try {
-        const { data } = await axios.get(process.env.ACCOUNT, { params, headers: { "X-MBX-APIKEY": process.env.API_KEY } })
-        res.json(data)
-    }
-    catch (e) {
-        res.send("error")
-    }
-})
-
-module.exports.trades = async (req, res) => {
-    console.log("TRADES")
-    // * (1) Create timestamp
-    const now = (new Date()).valueOf()
-    // * (2) Create params
-    const params = { timestamp: now }
-    // * (3) Create signature
-    const hash = CryptoJS.HmacSHA256(`timestamp=${now}`, process.env.API_SECRET)
-    const signature = CryptoJS.enc.Hex.stringify(hash);
-    params.signature = signature
-    console.log(params.signature)
-    try {
-        const { data } = await axios.get(process.env.OPEN_ORDER, { params, headers: { "X-MBX-APIKEY": process.env.API_KEY } })
-        res.json(data)
-    }
-    catch (e) {
-        console.log(e)
-        res.send("error")
-    }
+    const params = { timestamp: now, signature }
+    const { data } = await axios.get(req.path === '/account' ? process.env.ACCOUNT : process.env.OPEN_ORDER, { params})
+    res.json(data)
 }
 
 
 module.exports.changeBase = (req, res, next) => {
     const { symbol } = req.params
     if (!['THB', 'USD', 'USDT'].includes(symbol)) next();
+    setEnvValue("SYMBOL_ID", process.env[symbol])
     setEnvValue("SYMBOL", symbol)
     res.status(200).json({ base: symbol })
 }
@@ -179,4 +113,8 @@ function setEnvValue(key, value) {
     // write everything back to the file system
     fs.writeFileSync("./.env", ENV_VARS.join(os.EOL));
 
+    // force server restart
+    fs.writeFileSync("./dummy.js", fs.readFileSync("./dummy.js", "utf8"));
+
 }
+
