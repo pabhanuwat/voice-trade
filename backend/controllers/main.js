@@ -7,20 +7,8 @@ const fs = require("fs");
 const os = require("os");
 const mapping = require('../idMap.json')
 
-async function convertCurrency(inCurrency, outCurrency) { // inCurrency -> outCurreny 
-    /**
-     * inCurrency: string
-     * outCurrency: string
-     */
-    const { data: data1 } = await axios.get(process.env.EXCHANGE, {
-        params: {
-            symbol: inCurrency,
-            access_key: process.env.EXCHANGE_API_KEY
-        }
-    }) // 1 EUR -> ?? symbol
-    const { data: data2 } = await axios.get(process.env.PRICE, { params: { symbol: `EUR${outCurrency}` } })
-    return (1 / data1.rates[inCurrency]) * data2.price
-}
+const allSymbol = "1,1839,52,74,1975,2010,6758,7186,2,4679,1027"
+const allSymbolList = ['BTC','BNB','DOGE','XRP','LINK','ADA','SUSHI','CAKE','LTC','BAND','ETH']
 
 module.exports.price = async ({ params }, res) => {
     // * for THB USD USDT
@@ -36,19 +24,24 @@ module.exports.price = async ({ params }, res) => {
         }
     }
 
-    params = {...params, convert_id: process.env.SYMBOL_ID, id: mapping[params.symbol]?.id}
-    const path = params.id ? process.env.CMC_QUOTES : process.env.CMC_LISTINGS
+    params = {...params, convert_id: process.env.SYMBOL_ID, id: params.symbol ? mapping[params.symbol]?.id : allSymbol}
+    // params = {...params, convert_id: process.env.SYMBOL_ID, id: allSymbol}
+    // const path = params.id ? process.env.CMC_QUOTES : process.env.CMC_LISTINGS
+    const path = process.env.CMC_QUOTES
     params.symbol && delete params.symbol
     let {data: {data}} = await axios.get(path, {params} )
     // * Prune the data
-    data.length ? data = data.map(({name,symbol,quote:{[process.env.SYMBOL_ID] : {price}}}) => ({name,symbol,price}))
-                : data = (({[params.id]:{name,symbol,quote:{[process.env.SYMBOL_ID] : {price}}}}) => ({name,symbol,price}))(data);
-    return res.json(data)
+    // data.length ? data = data.map(({name,symbol,quote:{[process.env.SYMBOL_ID] : {price}}}) => ({name,symbol,price}))
+    //             : data = (({[params.id]:{name,symbol,quote:{[process.env.SYMBOL_ID] : {price}}}}) => ({name,symbol,price}))(data);
+    const result = [];
+    for (const key in data) {
+        const {name, symbol, quote: {[process.env.SYMBOL_ID] : {price}}} = data[key]
+        result.push({name,symbol,price})
+    }
+    return res.json(result)
 }
 
 module.exports.priceChangeSymbol = catchAsync(async ({ params }, res) => {
-    // const { data: { symbol, priceChange, priceChangePercent, lastPrice } } = await axios.get(process.env.PRICE_CHANGE, { params })
-    // return res.json({ symbol, priceChange, priceChangePercent, lastPrice })
     params = {  
         id: mapping[params.symbol].id,
         convert_id: process.env.SYMBOL_ID,
@@ -58,19 +51,29 @@ module.exports.priceChangeSymbol = catchAsync(async ({ params }, res) => {
     return res.json(data)
 })
 
-module.exports.priceChange = catchAsync(async ({ params: { option, number } }, res, next) => {
+module.exports.priceChange = async ({ params: { option, number } }, res, next) => {
     // ! Invalid path
     if (!['up', 'down'].includes(option)) return next()
     let params = {  
-        convert_id: process.env.SYMBOL_ID,
-        sort: "percent_change_24h",
-        sort_dir: option === 'up' ? 'desc' : 'asc',
+        id: allSymbol,
+        convert_id: process.env.SYMBOL_ID
+        // sort: "percent_change_24h",
+        // sort_dir: option === 'up' ? 'desc' : 'asc',
     }
-    let {data: {data}} = await axios.get(process.env.CMC_LISTINGS, {params} )
-    data = data.map(({name,symbol,quote:{[process.env.SYMBOL_ID] : {price,percent_change_24h:percentChange}}}) => ({name,symbol,price,percentChange}))
-    if (number) return res.json(data.slice(0, number))
-    else return res.json(data[0])
-})
+    // let {data: {data}} = await axios.get(process.env.CMC_LISTINGS, {params} )
+    // data = data.map(({name,symbol,quote:{[process.env.SYMBOL_ID] : {price,percent_change_24h:percentChange}}}) => ({name,symbol,price,percentChange}))
+    // data = data.filter(({symbol})=> {console.log(symbol); return allSymbolList.includes(symbol)})
+    let {data: {data}} = await axios.get(process.env.CMC_QUOTES, {params} )
+    const result = [];
+    for (const key in data) {
+        const {name, symbol, quote: {[process.env.SYMBOL_ID] : {price, percent_change_24h:percentChange}}} = data[key]
+        result.push({name,symbol,price, percentChange})
+    }
+    result.sort((a,b) => (+b.percentChange - +a.percentChange) * (option === 'up' ? 1 : -1) )
+    if (number) return res.json(result.slice(0, number))
+    else return res.json(result[0])
+    
+}
 
 module.exports.graph = catchAsync(async ({ params }, res) => {
     params.interval = params.interval || process.env.DEFAULT_INTERVAL
